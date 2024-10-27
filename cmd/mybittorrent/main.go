@@ -242,8 +242,10 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println("Tracker URL:", decodedData["announce"])
- 		fmt.Println("Length:", (decodedData["info"]).(map[string]interface{})["length"])
+		announce := decodedData["announce"]
+		length := (decodedData["info"]).(map[string]interface{})["length"]
+		fmt.Println("Tracker URL:", announce)
+ 		fmt.Println("Length:", length)
 
 		// Bencode info dict
 	 	var sb strings.Builder
@@ -258,6 +260,16 @@ func main() {
 		hasher.Write([]byte(encodedInfo))
 		hash := hasher.Sum(nil)
 		fmt.Printf("Info Hash: %x\n", hash)
+
+		pieceLength := ((decodedData["info"]).(map[string]interface{})["piece length"]).(int)
+		pieces := []byte(((decodedData["info"]).(map[string]interface{})["pieces"]).(string))
+
+		fmt.Println("Piece Length:", pieceLength)
+		fmt.Println("Pieces Hashes:")
+		
+		for currByte := 0; currByte < len(pieces); currByte += 20 {
+			fmt.Printf("%x\n", pieces[currByte:currByte+20])
+		}
 
 	} else {
 		fmt.Println("Unknown command: " + command)
