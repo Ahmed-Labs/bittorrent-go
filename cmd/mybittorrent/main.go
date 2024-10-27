@@ -20,26 +20,7 @@ func isBencodedList(s string) bool {
 	return rune(s[0]) == 'l' && rune(s[len(s)-1]) == 'e'
 }
 
-func decodeBencodedString(bencodedString string) (string, error) {
-	var firstColonIndex int
-
-	for i := 0; i < len(bencodedString); i++ {
-		if bencodedString[i] == ':' {
-			firstColonIndex = i
-			break
-		}
-	}
-	lengthStr := bencodedString[:firstColonIndex]
-
-	length, err := strconv.Atoi(lengthStr)
-	if err != nil {
-		return "", err
-	}
-
-	return bencodedString[firstColonIndex+1 : firstColonIndex+1+length], nil
-}
-
-func bencodeStringEnd(b string, idx int) int {
+func bencodedStringEnd(b string, idx int) int {
 	var firstColonIndex int
 
 	for i := idx; i < len(b); i++ {
@@ -58,7 +39,7 @@ func bencodeStringEnd(b string, idx int) int {
 	return idx + length + 1
 }
 
-func bencodeIntEnd(b string, idx int) int {
+func bencodedIntEnd(b string, idx int) int {
 	i := idx
 
 	for i < len(b) && b[i] != 'e' {
@@ -67,23 +48,42 @@ func bencodeIntEnd(b string, idx int) int {
 	return i
 }
 
-func bencodeListEnd(b string, idx int) int {
+func bencodedListEnd(b string, idx int) int {
 	stack := []rune{'l'}
 	i := idx+1
 
 	for i < len(b) && len(stack) > 0 {
 		if b[i] == 'l' {
-			i = bencodeListEnd(b, i)
+			i = bencodedListEnd(b, i)
 		} else if b[i] == 'i' {
-			i = bencodeIntEnd(b, i)
+			i = bencodedIntEnd(b, i)
 		} else if unicode.IsDigit(rune(b[i])) {
-			i = bencodeStringEnd(b, i)
+			i = bencodedStringEnd(b, i)
 		} else if b[i] == 'e' {
 			stack = stack[:len(stack)-1]
 		}
 		i++
 	}
 	return i-1
+}
+
+func decodeBencodedString(bencodedString string) (string, error) {
+	var firstColonIndex int
+
+	for i := 0; i < len(bencodedString); i++ {
+		if bencodedString[i] == ':' {
+			firstColonIndex = i
+			break
+		}
+	}
+	lengthStr := bencodedString[:firstColonIndex]
+
+	length, err := strconv.Atoi(lengthStr)
+	if err != nil {
+		return "", err
+	}
+
+	return bencodedString[firstColonIndex+1 : firstColonIndex+1+length], nil
 }
 
 func decodeBencodedInt(bencodedInt string) (int, error) {
@@ -109,7 +109,7 @@ func decodeBencodedList(bencodedList string) ([]interface{}, error) {
 
 	for i < len(bencodedList) {
 		if bencodedList[i] == 'l' {
-			endIdx := bencodeListEnd(bencodedList, i)
+			endIdx := bencodedListEnd(bencodedList, i)
 			d, err := decodeBencodedList(bencodedList[i:endIdx+1])
 			if err != nil {
 				return nil, err
@@ -117,7 +117,7 @@ func decodeBencodedList(bencodedList string) ([]interface{}, error) {
 			res = append(res, d)
 			i = endIdx + 1
 		} else if unicode.IsDigit(rune(bencodedList[i])){
-			endIdx := bencodeStringEnd(bencodedList, i)			
+			endIdx := bencodedStringEnd(bencodedList, i)			
 			d, err := decodeBencodedString(bencodedList[i:endIdx+1])
 			if err != nil {
 				return nil, err
@@ -126,7 +126,7 @@ func decodeBencodedList(bencodedList string) ([]interface{}, error) {
 			i = endIdx + 1
 			
 		} else if rune(bencodedList[i]) == 'i' {
-			endIdx := bencodeIntEnd(bencodedList, i)
+			endIdx := bencodedIntEnd(bencodedList, i)
 			d, err := decodeBencodedInt(bencodedList[i:endIdx+1])
 			if err != nil {
 				return nil, err
