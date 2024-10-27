@@ -20,6 +20,10 @@ func isBencodedList(s string) bool {
 	return rune(s[0]) == 'l' && rune(s[len(s)-1]) == 'e'
 }
 
+func isBencodedDictionary(s string) bool {
+	return rune(s[0]) == 'd'
+}
+
 func bencodedStringEnd(b string, idx int) int {
 	var firstColonIndex int
 
@@ -35,8 +39,7 @@ func bencodedStringEnd(b string, idx int) int {
 	if err != nil {
 		return -1
 	}
-
-	return idx + length + 1
+	return firstColonIndex + length
 }
 
 func bencodedIntEnd(b string, idx int) int {
@@ -140,6 +143,62 @@ func decodeBencodedList(bencodedList string) ([]interface{}, error) {
 	return res, nil
 }
 
+func decodeBencodedDictionary(bencoded string) (map[string]interface{}, error) {
+	res := map[string]interface{}{}
+	i := 1
+	var cursor int8 = 0
+	var key string
+	
+	for i < len(bencoded) {
+		if unicode.IsDigit(rune(bencoded[i])){
+			endIdx := bencodedStringEnd(bencoded, i)
+			d, err := decodeBencodedString(bencoded[i:endIdx+1])
+			if err != nil {
+				return nil, err
+			}
+			i = endIdx + 1
+			if cursor == 0 {
+				key = d
+			} else {
+				res[key] = d
+			}
+
+		} else if bencoded[i] == 'l' {
+			endIdx := bencodedListEnd(bencoded, i)
+			d, err := decodeBencodedList(bencoded[i:endIdx+1])
+			if err != nil {
+				return nil, err
+			}
+			i = endIdx + 1
+			res[key] = d
+
+		} else if rune(bencoded[i]) == 'i' {
+			endIdx := bencodedIntEnd(bencoded, i)
+			d, err := decodeBencodedInt(bencoded[i:endIdx+1])
+			if err != nil {
+				return nil, err
+			}
+			i = endIdx + 1
+			res[key] = d
+			
+		} else if rune(bencoded[i]) == 'd' {
+			endIdx := bencodedListEnd(bencoded, i)
+			d, err := decodeBencodedDictionary(bencoded[i:endIdx+1])
+			if err != nil {
+				return nil, err
+			}
+			i = endIdx + 1
+			res[key] = d
+
+		} else {
+			i++
+		}
+		cursor ^= 1
+	}
+
+	return res, nil
+}
+
 func decodeBencode(bencoded string) (interface{}, error) {
 	if isBencodedList(bencoded) {
 		return decodeBencodedList(bencoded)
@@ -147,6 +206,8 @@ func decodeBencode(bencoded string) (interface{}, error) {
 		return decodeBencodedInt(bencoded)
 	} else if isBencodedString(bencoded) {
 		return decodeBencodedString(bencoded)
+	} else if isBencodedDictionary(bencoded) {
+		return decodeBencodedDictionary(bencoded)
 	} else {
 		return "", fmt.Errorf("Unexpected bencoded string received. Unable to decode.")
 	}
