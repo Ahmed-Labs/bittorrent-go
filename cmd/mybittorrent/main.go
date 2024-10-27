@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"unicode"
+	"crypto/sha1"
+
+	"github.com/jackpal/bencode-go"
 )
 
 func isBencodedString(s string) bool {
@@ -232,12 +236,29 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+
+		// Deocde bencoded torrent metadata
 		decodedData, err := decodeBencodedDictionary(string(data))
 		if err != nil {
 			panic(err)
 		}
 		fmt.Println("Tracker URL:", decodedData["announce"])
  		fmt.Println("Length:", (decodedData["info"]).(map[string]interface{})["length"])
+
+		// Bencode info dict
+	 	var sb strings.Builder
+		err = bencode.Marshal(&sb, decodedData["info"])
+		if err != nil {
+			panic(err)
+		}
+
+		// Generate SHA-1 hash of info dict 
+		var encodedInfo string = sb.String()
+		hasher := sha1.New()
+		hasher.Write([]byte(encodedInfo))
+		hash := hasher.Sum(nil)
+		fmt.Printf("Info Hash: %x\n", hash)
+
 	} else {
 		fmt.Println("Unknown command: " + command)
 		os.Exit(1)
