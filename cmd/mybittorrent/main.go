@@ -222,12 +222,22 @@ func main() {
 
 		decoded, err := decodeBencode(bencodedValue)
 		if err != nil {
-			fmt.Println(err)
-			return
+			panic(err)
 		}
 
 		jsonOutput, _ := json.Marshal(decoded)
 		fmt.Println(string(jsonOutput))
+	} else if command == "info" {
+		data, err := os.ReadFile(os.Args[2])
+		if err != nil {
+			panic(err)
+		}
+		decodedData, err := decodeBencodedDictionary(string(data))
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println("Tracker URL:", decodedData["announce"])
+ 		fmt.Println("Length:", (decodedData["info"]).(map[string]interface{})["length"])
 	} else {
 		fmt.Println("Unknown command: " + command)
 		os.Exit(1)
