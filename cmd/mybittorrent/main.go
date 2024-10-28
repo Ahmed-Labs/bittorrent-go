@@ -1,16 +1,26 @@
 package main
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"unicode"
-	"crypto/sha1"
 
 	"github.com/jackpal/bencode-go"
+	"github.com/sqids/sqids-go"
 )
+
+func checkError(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
 
 func isBencodedString(s string) bool {
 	return unicode.IsDigit(rune(s[0]))
@@ -57,7 +67,7 @@ func bencodedIntEnd(b string, idx int) int {
 
 func bencodedListEnd(b string, idx int) int {
 	stack := []rune{'l'}
-	i := idx+1
+	i := idx + 1
 
 	for i < len(b) && len(stack) > 0 {
 		if b[i] == 'l' {
@@ -71,7 +81,7 @@ func bencodedListEnd(b string, idx int) int {
 		}
 		i++
 	}
-	return i-1
+	return i - 1
 }
 
 func decodeBencodedString(bencodedString string) (string, error) {
@@ -111,30 +121,30 @@ func decodeBencodedInt(bencodedInt string) (int, error) {
 
 func decodeBencodedList(bencodedList string) ([]interface{}, error) {
 	i := 0
-	bencodedList = bencodedList[1:len(bencodedList)-1]
+	bencodedList = bencodedList[1 : len(bencodedList)-1]
 	res := []interface{}{}
 
 	for i < len(bencodedList) {
 		if bencodedList[i] == 'l' {
 			endIdx := bencodedListEnd(bencodedList, i)
-			d, err := decodeBencodedList(bencodedList[i:endIdx+1])
+			d, err := decodeBencodedList(bencodedList[i : endIdx+1])
 			if err != nil {
 				return nil, err
 			}
 			res = append(res, d)
 			i = endIdx + 1
-		} else if unicode.IsDigit(rune(bencodedList[i])){
-			endIdx := bencodedStringEnd(bencodedList, i)			
-			d, err := decodeBencodedString(bencodedList[i:endIdx+1])
+		} else if unicode.IsDigit(rune(bencodedList[i])) {
+			endIdx := bencodedStringEnd(bencodedList, i)
+			d, err := decodeBencodedString(bencodedList[i : endIdx+1])
 			if err != nil {
 				return nil, err
 			}
 			res = append(res, d)
 			i = endIdx + 1
-			
+
 		} else if rune(bencodedList[i]) == 'i' {
 			endIdx := bencodedIntEnd(bencodedList, i)
-			d, err := decodeBencodedInt(bencodedList[i:endIdx+1])
+			d, err := decodeBencodedInt(bencodedList[i : endIdx+1])
 			if err != nil {
 				return nil, err
 			}
@@ -152,11 +162,11 @@ func decodeBencodedDictionary(bencoded string) (map[string]interface{}, error) {
 	i := 1
 	var cursor int8 = 0
 	var key string
-	
+
 	for i < len(bencoded) {
-		if unicode.IsDigit(rune(bencoded[i])){
+		if unicode.IsDigit(rune(bencoded[i])) {
 			endIdx := bencodedStringEnd(bencoded, i)
-			d, err := decodeBencodedString(bencoded[i:endIdx+1])
+			d, err := decodeBencodedString(bencoded[i : endIdx+1])
 			if err != nil {
 				return nil, err
 			}
@@ -169,7 +179,7 @@ func decodeBencodedDictionary(bencoded string) (map[string]interface{}, error) {
 
 		} else if bencoded[i] == 'l' {
 			endIdx := bencodedListEnd(bencoded, i)
-			d, err := decodeBencodedList(bencoded[i:endIdx+1])
+			d, err := decodeBencodedList(bencoded[i : endIdx+1])
 			if err != nil {
 				return nil, err
 			}
@@ -178,16 +188,16 @@ func decodeBencodedDictionary(bencoded string) (map[string]interface{}, error) {
 
 		} else if rune(bencoded[i]) == 'i' {
 			endIdx := bencodedIntEnd(bencoded, i)
-			d, err := decodeBencodedInt(bencoded[i:endIdx+1])
+			d, err := decodeBencodedInt(bencoded[i : endIdx+1])
 			if err != nil {
 				return nil, err
 			}
 			i = endIdx + 1
 			res[key] = d
-			
+
 		} else if rune(bencoded[i]) == 'd' {
 			endIdx := bencodedListEnd(bencoded, i)
-			d, err := decodeBencodedDictionary(bencoded[i:endIdx+1])
+			d, err := decodeBencodedDictionary(bencoded[i : endIdx+1])
 			if err != nil {
 				return nil, err
 			}
@@ -199,7 +209,6 @@ func decodeBencodedDictionary(bencoded string) (map[string]interface{}, error) {
 		}
 		cursor ^= 1
 	}
-
 	return res, nil
 }
 
@@ -217,6 +226,55 @@ func decodeBencode(bencoded string) (interface{}, error) {
 	}
 }
 
+func getTrackerURL(filename string) string {
+	data, err := os.ReadFile(filename)
+	checkError(err)
+
+	// Deocde bencoded torrent metadata
+	decodedData, err := decodeBencodedDictionary(string(data))
+	checkError(err)
+
+	return decodedData["announce"].(string)
+}
+
+func getInfoHash(filename string) []byte {
+	data, err := os.ReadFile(filename)
+	checkError(err)
+	// Deocde bencoded torrent metadata
+	decodedData, err := decodeBencodedDictionary(string(data))
+	checkError(err)
+
+	// Bencode info dict
+	var sb strings.Builder
+	err = bencode.Marshal(&sb, decodedData["info"])
+	checkError(err)
+
+	// Generate SHA-1 hash of info dict
+	var encodedInfo string = sb.String()
+	hasher := sha1.New()
+	hasher.Write([]byte(encodedInfo))
+
+	return hasher.Sum(nil)
+}
+
+func getTorrentMetadataInfo(filename string) map[string]interface{} {
+	data, err := os.ReadFile(filename)
+	checkError(err)
+	// Deocde bencoded torrent metadata
+	decodedData, err := decodeBencodedDictionary(string(data))
+	checkError(err)
+
+	return decodedData["info"].(map[string]interface{})
+}
+
+func generateID() string {
+	s, _ := sqids.New(sqids.Options{
+		MinLength: 20,
+	})
+	id, _ := s.Encode([]uint64{1, 2, 3})
+	return id[:20]
+}
+
 func main() {
 	command := os.Args[1]
 
@@ -225,36 +283,28 @@ func main() {
 		bencodedValue := os.Args[2]
 
 		decoded, err := decodeBencode(bencodedValue)
-		if err != nil {
-			panic(err)
-		}
+		checkError(err)
 
 		jsonOutput, _ := json.Marshal(decoded)
 		fmt.Println(string(jsonOutput))
 	} else if command == "info" {
 		data, err := os.ReadFile(os.Args[2])
-		if err != nil {
-			panic(err)
-		}
-
+		checkError(err)
 		// Deocde bencoded torrent metadata
 		decodedData, err := decodeBencodedDictionary(string(data))
-		if err != nil {
-			panic(err)
-		}
-		announce := decodedData["announce"]
+		checkError(err)
+
+		trackerURL := decodedData["announce"]
 		length := (decodedData["info"]).(map[string]interface{})["length"]
-		fmt.Println("Tracker URL:", announce)
- 		fmt.Println("Length:", length)
+		fmt.Println("Tracker URL:", trackerURL)
+		fmt.Println("Length:", length)
 
 		// Bencode info dict
-	 	var sb strings.Builder
+		var sb strings.Builder
 		err = bencode.Marshal(&sb, decodedData["info"])
-		if err != nil {
-			panic(err)
-		}
+		checkError(err)
 
-		// Generate SHA-1 hash of info dict 
+		// Generate SHA-1 hash of info dict
 		var encodedInfo string = sb.String()
 		hasher := sha1.New()
 		hasher.Write([]byte(encodedInfo))
@@ -266,9 +316,46 @@ func main() {
 
 		fmt.Println("Piece Length:", pieceLength)
 		fmt.Println("Pieces Hashes:")
-		
+
 		for currByte := 0; currByte < len(pieces); currByte += 20 {
 			fmt.Printf("%x\n", pieces[currByte:currByte+20])
+		}
+
+	} else if command == "peers" {
+		params := url.Values{}
+		params.Add("info_hash", string(getInfoHash(os.Args[2])))
+		params.Add("peer_id", generateID())
+		params.Add("port", "6881")
+		params.Add("uploaded", "0")
+		params.Add("downloaded", "0")
+
+		length := strconv.Itoa(getTorrentMetadataInfo(os.Args[2])["length"].(int))
+		params.Add("left", length)
+		params.Add("compact", "1")
+
+		trackerURL := getTrackerURL(os.Args[2]) + "?" + params.Encode()
+		res, err := http.Get(trackerURL)
+		checkError(err)
+		defer res.Body.Close()
+
+		// Read the response body
+		body, err := io.ReadAll(res.Body)
+		checkError(err)
+
+		bencodedData := string(body)
+		decodedData, err := decodeBencodedDictionary(bencodedData)
+		checkError(err)
+
+		peers := []byte(decodedData["peers"].(string))
+		
+		for i := 0; i < len(peers); i += 6 {
+			parts := []string{}
+			for j := 0; j < 4; j++ {
+				parts = append(parts, strconv.Itoa(int(peers[i+j])))
+			}
+			port := strconv.Itoa(int(peers[i+4]) << 8 + int(peers[i+5]))
+			peer := strings.Join(parts, ".") + ":" + port
+			fmt.Println(peer)
 		}
 
 	} else {
