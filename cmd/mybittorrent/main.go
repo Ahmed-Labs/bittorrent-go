@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -358,6 +359,29 @@ func main() {
 			fmt.Println(peer)
 		}
 
+	} else if command == "handshake" {
+		peer := os.Args[3]
+		conn, err := net.Dial("tcp", peer)
+		checkError(err)
+		
+		handshakePayload := []byte{}
+		reservedBytes := [8]byte{0}
+		peerID := generateID()
+
+		handshakePayload = append(handshakePayload, 19)
+		handshakePayload = append(handshakePayload, []byte("BitTorrent protocol")...)
+		handshakePayload = append(handshakePayload, (reservedBytes[:])...)
+		handshakePayload = append(handshakePayload, getInfoHash(os.Args[2])...)
+		handshakePayload = append(handshakePayload, []byte(peerID)...)
+
+		_, err = conn.Write(handshakePayload)
+		checkError(err)
+		
+		buf := make([]byte, 68)
+		_, err = conn.Read(buf)
+		checkError(err)
+		
+		fmt.Printf("Peer ID: %x\n", buf[len(buf)-20:])
 	} else {
 		fmt.Println("Unknown command: " + command)
 		os.Exit(1)
